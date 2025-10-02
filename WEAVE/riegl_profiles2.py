@@ -1,7 +1,7 @@
 import os
 
-import numpy as np
 
+import numpy as np
 import glob
 
 import matplotlib
@@ -12,12 +12,11 @@ from matplotlib.ticker import MaxNLocator
 
 from pylidar_tls_canopy import riegl_io, plant_profile, grid
 
+import pandas as pd
 #import openpyxl
 from pathlib import Path
 import shutil
 import math
-
-
 import timeit
 import riegl_rdb
 import ast
@@ -25,16 +24,33 @@ import ast
 start = timeit.timeit()
 
 
-os.chdir(f'/Stor2/karun/data/benchmarking/bosland/vz400i/2024-04-08-BOSLAND-4i.RiSCAN/')
+os.chdir(f'/Stor2/karun/data/')
+
 cwd = os.getcwd()
-scans = sorted(os.listdir(cwd+"/SCANS"))
+scans = sorted(os.listdir(cwd+"/rxp/"))
 scans_df = pd.DataFrame(scans)
 
-scans_df=scans_df[0:18]
-scans_df=scans_df.reset_index(drop=True)
+scan_info = pd.concat([scans_df, pd.DataFrame(np.repeat("ScanPosVer.DAT", 38))], axis=1)
 
+scan_info.columns = ["rxp_v", "dat_h"]
+
+ignore_extensions = [".dat", ".DAT"]
+
+file_data = [] 
+for root, dirs, files in os.walk("."):
+    for file in files:
+        
+        if not any(file.endswith(ext) for ext in ignore_extensions):
+            file_data.append({"File": file, 
+                              "Full_Path": os.path.join(root, file), 
+                              "Directory": root,
+                              "Scan": 
+                              "Country" : })
+
+file_data = pd.DataFrame(file_data)
 
 def get_filepaths(data):
+    
 
     pth = cwd+"/project.rdb/SCANS/"+data+"/SINGLESCANS/"
     
@@ -112,14 +128,14 @@ scan_info.apply(lambda x : x.str.contains('residual'), axis=1)
 def get_plantprofiles(scans):
 
     
-    upright_rdbx_fn = scans['rdb_v']
+    #upright_rdbx_fn = scans['rdb_v']
     upright_rxp_fn = scans['rxp_v']
     upright_transform_fn = scans['dat_v']
     
 
-    tilt_rdbx_fn = scans['rdb_h']
-    tilt_rxp_fn = scans['rxp_h']
-    tilt_transform_fn = scans['dat_h']
+    #tilt_rdbx_fn = scans['rdb_h']
+    #tilt_rxp_fn = scans['rxp_h']
+    #tilt_transform_fn = scans['dat_h']
     # Determine the origin coordinates to use
     transform_matrix = riegl_io.read_transform_file(upright_transform_fn)
     x0,y0,z0,_ = transform_matrix[3,:]
@@ -130,10 +146,10 @@ def get_plantprofiles(scans):
     
 
     # If using RXP files only as input, set rxp to True:
-    x,y,z,r = plant_profile.get_min_z_grid([upright_rdbx_fn], 
+    x,y,z,r = plant_profile.get_min_z_grid([upright_rxp_fn], 
                                            [upright_transform_fn], 
                                         grid_extent, grid_resolution, grid_origin=grid_origin,
-                                        rxp=False)
+                                        rxp=True)
     
     # Optional weighting of points by 1 / range
     planefit = plant_profile.plane_fit_hubers(x, y, z, w=1/r)
@@ -147,15 +163,8 @@ def get_plantprofiles(scans):
 
     # If using RXP files only as input, set rdbx_file to None (the default)
     query_str = ['reflectance > -20']
-    vpp.add_riegl_scan_position(upright_rxp_fn, upright_transform_fn, sensor_height=1.8,
-        rdbx_file=upright_rdbx_fn, method='WEIGHTED', min_zenith=35, max_zenith=70,
-        query_str=query_str)
-    
-
-    # If using RXP files only as input, set rdbx_file to None (the default)
-    query_str = ['reflectance > -20']
-    vpp.add_riegl_scan_position(tilt_rxp_fn, tilt_transform_fn, sensor_height=1.8,
-        rdbx_file=tilt_rdbx_fn, method='WEIGHTED', min_zenith=5, max_zenith=35,
+    vpp.add_riegl_scan_position(upright_rxp_fn, upright_transform_fn, sensor_height=None,
+        rdbx_file=None, method='WEIGHTED', min_zenith=35, max_zenith=70,
         query_str=query_str)
     
     vpp.get_pgap_theta_z(min_azimuth=0, max_azimuth=360)
@@ -200,16 +209,7 @@ def get_plantprofiles(scans):
     
     
     return prof_dict
-    
-def get_metadata(scans):
-    points = riegl_rdb.readFile(scans["rdb_v"])
-    points = ast.literal_eval(points[0]["riegl.scan_pattern"])
-    res = round(points["rectangular"]["phi_increment"], 2)
-    def roundup(x):
-        return int(math.ceil(x / 100000.0)) * 100    
-    freq = roundup(points["rectangular"]["program"]["laser_prr"])
-    return [res, freq]
-  
+
 bos4_vzi_test= scan_info.apply(get_plantprofiles, axis=1) 
 
 
