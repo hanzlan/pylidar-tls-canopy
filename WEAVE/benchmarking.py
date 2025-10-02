@@ -103,7 +103,7 @@ def getpaths(projscan):
 
 all_path_tables = []  # will store one DataFrame per project
 
-
+# for benchmarking data that has all vertical scans first and then all tilt scans
 for projpath in projpaths:
     try:
         scan_root = os.path.join(projpath, 'project.rdb', 'SCANS')
@@ -131,6 +131,48 @@ for projpath in projpaths:
         print(projpath)
         break
 
+
+# for standard TLS acquisition with alternating vertical and tilt scans
+for projpath in projpaths:
+    try:
+        scan_root = os.path.join(projpath, 'project.rdb', 'SCANS')
+        if not os.path.isdir(scan_root):
+            continue
+
+        # 1) List scans in a stable order (adjust if you need natural sort)
+        scans = sorted(os.listdir(scan_root))
+
+        # 2) Collect paths per scan (uses your existing getpaths(projscan) that relies on global projpath)
+        rows = [getpaths(s) for s in scans]  # returns [rdb, rxp, dat]
+        df = pd.DataFrame(rows, columns=["rdb", "rxp", "dat"])
+        df["scan"] = scans
+
+        # 3) Pair consecutive scans: (0,1) -> V/H, (2,3) -> V/H, ...
+        paired = []
+        for i in range(0, len(df), 2):
+            v = df.iloc[i]
+            if i + 1 < len(df):
+                h = df.iloc[i + 1]
+            else:
+                # odd count: last vertical without a tilt partner
+                h = pd.Series({"rdb": "none", "rxp": "none", "dat": "none", "scan": None})
+
+            paired.append({
+                "rdb_v": v["rdb"], "rxp_v": v["rxp"], "dat_v": v["dat"], "scan_v": v["scan"],
+                "rdb_h": h["rdb"], "rxp_h": h["rxp"], "dat_h": h["dat"], "scan_h": h["scan"],
+            })
+        paths_combined = pd.DataFrame(paired)
+        paths_combined["project_path"] = os.path.basename(projpath)
+
+        all_path_tables.append(paths_combined)
+
+        # Optional: flag odd counts so you notice unpaired last items
+        if len(df) % 2 == 1:
+            print(f"[warn] Odd number of scans in {projpath}: last vertical has no tilt pair.")
+
+    except Exception as e:
+        print(f"[error] {projpath}: {e}")
+        break
     
 
 # Combine all into one big table
