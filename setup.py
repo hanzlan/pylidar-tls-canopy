@@ -6,7 +6,6 @@ import os
 import sys
 import numpy
 import ctypes
-import pylidar_tls_canopy
 from setuptools import Extension,setup
 
 NUMPY_MACROS = ('NPY_NO_DEPRECATED_API', 'NPY_1_7_API_VERSION')
@@ -46,7 +45,7 @@ def addRieglRXPDriver(extModules, cxxFlags):
 
         rieglModule = Extension(name='riegl_rxp', 
                 define_macros=[NUMPY_MACROS],
-                sources=['src/riegl_rxp.cpp', 'src/pylidar.c'],
+                sources=['src/riegl_rxp.cpp', 'src/pylidar.cpp'],
                 include_dirs=[os.path.join(rivlibRoot, 'include'), numpy.get_include()],
                 extra_compile_args=cxxFlags,
                 libraries=rivlibs,
@@ -77,7 +76,7 @@ def addRieglRDBDriver(extModules, cxxFlags):
 
         rieglRDBModule = Extension(name='riegl_rdb',
                 define_macros=defines,
-                sources=['src/riegl_rdb.cpp', 'src/pylidar.c'],
+                sources=['src/riegl_rdb.cpp', 'src/pylidar.cpp'],
                 include_dirs=[os.path.join(rdblibRoot, 'interface', 'c'), numpy.get_include()],
                 extra_compile_args=cxxFlags,
                 libraries=[rdbLibName],
@@ -144,7 +143,7 @@ if len(externalModules) == 0:
     print('RiVLib and/or RDBLib not found. Only the LEAF and RDBX (if installed) drivers will be available.')
 
 setup(name='pylidar-tls-canopy',
-      version=pylidar_tls_canopy.__version__,
+      version='0.4',
       author='John Armston',
       author_email='armston@umd.edu',
       packages=['pylidar_tls_canopy','pylidar_tls_canopy.cmd'],

@@ -49,107 +49,104 @@ va_list args;
 
 /* Helper function to get information about a named field within an array
  pass null for params you not interested in */
-int pylidar_getFieldDescr(PyArrayObject *pArray, const char *pszName, int *pnOffset, char *pcKind, int *pnSize, int *pnLength)
+int pylidar_getFieldDescr(PyArrayObject *pArray, const char *pszName,
+                          int *pnOffset, char *pcKind, int *pnSize, int *pnLength)
 {
-PyObject *pKey, *pValue;
-Py_ssize_t pos = 0;
-int bFound = 0;
-PyObject *bytesKey;
-char *pszElementName;
-PyObject *pOffset;
-PyArray_Descr *pSubDescr;
-PyArray_Descr *pDescr;
+    PyObject *pKey, *pValue;
+    Py_ssize_t pos = 0;
+    int bFound = 0;
+    PyObject *bytesKey;
+    char *pszElementName;
+    PyObject *pOffset;
+    PyArray_Descr *pSubDescr;
+    PyArray_Descr *pDescr;
 
-    if( ! PyArray_Check(pArray) )
-    {
+    if (!PyArray_Check(pArray)) {
         pylidar_error("Must pass array type");
         return 0;
     }
 
     pDescr = PyArray_DESCR(pArray);
-    if( pDescr == NULL )
-    {
+    if (!pDescr) {
         pylidar_error("Cannot get array description");
         return 0;
     }
 
-    if( ( pDescr->byteorder != '|' ) && ( pDescr->byteorder != '=' ) )
-    {
+    if ((pDescr->byteorder != '|') && (pDescr->byteorder != '=')) {
         pylidar_error("Cannot handle exotic byte order yet");
         return 0;
     }
 
-    if( ( pDescr->fields == NULL ) || !PyDict_Check(pDescr->fields) )
-    {
-        pylidar_error("Cannot obtain the fields");
+    // Get fields dict safely
+    PyObject *fields = PyObject_GetAttrString((PyObject*)pDescr, "fields");
+    if (!fields || fields == Py_None || !PyDict_Check(fields)) {
+        pylidar_error("Array has no structured fields");
+        Py_XDECREF(fields);
         return 0;
     }
 
-    /* go through each of the fields looking for the right name
-     see http://docs.scipy.org/doc/numpy/reference/c-api.types-and-structures.html
-     "this data-type-descriptor has fields described by a Python dictionary whose keys 
-     are names (and also titles if given) and whose values are tuples that describe the fields."
-     "A field is described by a tuple composed of another data- type-descriptor and a byte offset" */
-    while( PyDict_Next(pDescr->fields, &pos, &pKey, &pValue) )
-    {
-        bytesKey = PyUnicode_AsEncodedString(pKey, NULL, NULL);
+    while (PyDict_Next(fields, &pos, &pKey, &pValue)) {
+        bytesKey = PyUnicode_AsEncodedString(pKey, "utf-8", "strict");
         pszElementName = PyBytes_AsString(bytesKey);
-        if( strcmp( pszElementName, pszName ) == 0 )
-        {
-            /* matches */
+        if (strcmp(pszElementName, pszName) == 0) {
             bFound = 1;
-            /* byte offset */
+
             pOffset = PyTuple_GetItem(pValue, 1);
-            /* description */
             pSubDescr = (PyArray_Descr*)PyTuple_GetItem(pValue, 0);
-            if( pSubDescr != NULL )
-            {
-                if( ( pSubDescr->kind == 'V' ) && ( pSubDescr->subarray != NULL ) )
-                {
-                    /* is a sub array */
-                    if( pnOffset != NULL )
-                    {
-                        *pnOffset = PyLong_AsLong(pOffset);
-                    }
-                    if( pcKind != NULL )
-                        *pcKind = pSubDescr->subarray->base->kind;
-                    if( pnSize != NULL )
-                        *pnSize = pSubDescr->subarray->base->elsize;
-                    if( PyTuple_Size(pSubDescr->subarray->shape) != 1 )
-                    {
+
+            // Handle subarray safely using Python API
+            PyObject *subdtype = PyObject_GetAttrString((PyObject*)pSubDescr, "subdtype");
+            if (subdtype && subdtype != Py_None) {
+                PyObject *base_dtype = PyTuple_GetItem(subdtype, 0);
+                PyObject *shape = PyTuple_GetItem(subdtype, 1);
+
+                if (pnOffset) *pnOffset = (int)PyLong_AsLong(pOffset);
+
+                if (pcKind) {
+                    PyObject *kind = PyObject_GetAttrString(base_dtype, "kind");
+                    *pcKind = PyUnicode_AsUTF8(kind)[0];
+                    Py_DECREF(kind);
+                }
+
+                if (pnSize) {
+                    PyObject *itemsize = PyObject_GetAttrString(base_dtype, "itemsize");
+                    *pnSize = (int)PyLong_AsLong(itemsize);
+                    Py_DECREF(itemsize);
+                }
+
+                if (pnLength) {
+                    if (PyTuple_Size(shape) != 1) {
                         pylidar_error("Can only handle 1-d sub arrays");
+                        Py_DECREF(subdtype);
+                        Py_DECREF(bytesKey);
+                        Py_DECREF(fields);
                         return 0;
                     }
-                    if( pnLength != NULL )
-                    {
-                        *pnLength = PyLong_AsLong( PyTuple_GetItem(pSubDescr->subarray->shape, 0) );
-                    }
+                    *pnLength = (int)PyLong_AsLong(PyTuple_GetItem(shape, 0));
                 }
-                else
-                {
-                    /* is a single item */
-                    if( pnOffset != NULL )
-                    {
-                        *pnOffset = PyLong_AsLong(pOffset);
-                    }
-                    if( pcKind != NULL )
-                        *pcKind = pSubDescr->kind;
-                    if( pnSize != NULL )
-                        *pnSize = pSubDescr->elsize;
-                    if( pnLength != NULL )
-                        *pnLength = 1;
-                }
+
+                Py_DECREF(subdtype);
+            } else {
+                // Single item
+                if (pnOffset) *pnOffset = (int)PyLong_AsLong(pOffset);
+                if (pcKind) *pcKind = pSubDescr->kind;
+                if (pnSize) *pnSize = PyArray_ITEMSIZE(pArray);
+                if (pnLength) *pnLength = 1;
             }
+
             Py_DECREF(bytesKey);
             break;
         }
         Py_DECREF(bytesKey);
     }
-    if( !bFound )
-    {
+
+    Py_DECREF(fields);
+
+    if (!bFound) {
         pylidar_error("Couldn't find field %s", pszName);
         return 0;
     }
+
     return 1;
 }
 
